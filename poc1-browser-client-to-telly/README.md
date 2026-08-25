@@ -1,217 +1,201 @@
-# TallyPrime Browser Connectivity POC
+# TallyPrime Local Integration POC (Minimal)
 
-This project is a minimal proof-of-concept for checking whether a browser running on the same Windows machine can send an HTTP POST directly to a local TallyPrime instance at `http://localhost:9000`.
+This repository contains a minimal technical feasibility proof-of-concept demonstrating a Next.js frontend and backend communicating with a locally running TallyPrime instance via Tally's HTTP/XML interface.
 
-The application intentionally avoids any Next.js API route. The browser makes the HTTP request directly.
+Purpose: Prove these flows on a single Windows machine where TallyPrime is installed and running:
 
-## What this app does
+- Browser -> Backend
+- Backend -> TallyPrime (HTTP/XML)
+- Backend receives Tally response and returns it to the Browser
 
-- Starts a simple Next.js UI
-- Shows a `Test Tally Connection` button
-- Sends a direct browser-side `fetch()` to `http://localhost:9000`
-- Displays:
-  - connection status
-  - HTTP status code
-  - request time
-  - raw response body
-  - detailed error text
-- Allows a mock mode so the frontend can be verified without TallyPrime installed
+This POC purposely stays small and focused — it is NOT production-ready.
 
-## Install dependencies
+---
 
-From the project root:
+**Architecture**
+
+Browser (Next.js React) -> Next.js API routes (server) -> TallyPrime HTTP/XML (localhost:9000) -> TallyPrime
+
+- The browser never talks directly to `http://localhost:9000`; it calls backend API routes under `/api/tally/*`.
+- The backend is responsible for building the XML envelope, sending it to Tally, and returning raw response details to the frontend.
+
+**Where to find the implementation**
+
+- Frontend UI: `app/page.tsx`
+- Tally XML helpers and HTTP proxy: `lib/tallyProxy.ts`
+- Minimal (older) test XML helper: `lib/tallyRequest.ts`
+- API routes: `app/api/tally/status`, `app/api/tally/get-ledger`, `app/api/tally/create-ledger`, `app/api/tally/update-ledger`
+
+---
+
+Getting started (developer)
+
+1. Install dependencies from `poc1-browser-client-to-telly`:
 
 ```bash
+cd poc1-browser-client-to-telly
 npm install
 ```
 
-## Run the app
+2. Start the dev server:
 
 ```bash
 npm run dev
 ```
 
-Then open:
+3. Open the UI:
 
-```text
 http://localhost:3000
-```
 
-To run in production mode after building:
+---
 
-```bash
-npm run build
-npm run start
-```
+What the UI provides
 
-## Mock Tally mode
+- Connection status (Connected / Disconnected / Error)
+- READ: `Get Test Ledger` — requests ledger listing from Tally (raw XML returned)
+- CREATE: Input a ledger name and click `Create Ledger` — backend builds an IMPORT XML with a minimal `<LEDGER>` and posts to Tally
+- UPDATE: Provide an existing ledger `oldName` and a `newName` to rename via an ALTER `<LEDGER>` import
+- RAW DEBUG: For every operation the app shows the request XML sent and the raw response body returned by Tally, plus HTTP status and errors
 
-To test the frontend without TallyPrime installed, create a `.env.local` file with:
+Mock mode
 
-```env
-NEXT_PUBLIC_USE_MOCK_TALLY=true
-```
+The frontend includes a Mock mode toggle. When enabled, the backend endpoints return canned XML responses so you can exercise the UI without TallyPrime.
 
-Then restart the Next.js app. The UI will simulate a valid Tally-like XML response and let you verify the frontend behavior independent of the Windows Tally setup.
+---
 
-## Important design note
+TallyPrime configuration (what you must enable in Tally)
 
-This POC intentionally does not use a Next.js route such as `/api/test-tally`. The browser request is direct:
+The POC uses TallyPrime's built-in HTTP/XML interface on port `9000`. Typical steps on a Windows machine with TallyPrime:
 
-```text
-Browser -> http://localhost:9000 -> TallyPrime
-```
+1. Open TallyPrime on the machine where you will run the browser and the Next.js server.
+2. In TallyPrime, enable the HTTP/XML server. (In many Tally versions this appears under `Gateway of Tally -> F12: Configure -> Advanced Configuration` or a similar configuration area; enable XML/HTTP server and note the listening port — default `9000`.)
+3. Ensure TallyPrime is running and the HTTP server is listening on `localhost:9000`.
 
-## TallyPrime configuration requirements
+If you cannot find the exact UI in your TallyPrime build, consult Tally's official documentation for enabling the HTTP/XML interface for your specific TallyPrime version.
 
-TallyPrime must be configured to accept local HTTP/XML requests on port `9000` and must be running on the same Windows machine as the browser. In practice, you need to check the TallyPrime HTTP/XML integration settings for:
+Minimal network checks
 
-- enabled HTTP server or XML interface
-- HTTP port binding to `localhost` or `127.0.0.1`
-- whether the service is listening on port `9000`
-- whether the XML request format is actually accepted by that enabled interface
-- whether the request is restricted to specific local addresses or local services
-
-This is a Tally-side configuration issue, not a Next.js issue.
-
-## How to determine whether TallyPrime is listening on localhost:9000
-
-From the same Windows machine, try one of the following:
-
-### 1) Check the port listener
+From the same Windows machine:
 
 ```powershell
 netstat -ano | findstr :9000
+curl.exe -v -X POST http://localhost:9000 -H "Content-Type: application/xml; charset=utf-8" --data "<ENVELOPE></ENVELOPE>"
 ```
 
-If there is a listener, you should see a row showing the port is in use. You may also use:
+If `curl` returns a response, TallyPrime is accepting HTTP/XML requests and the POC can be exercised.
 
-```powershell
-Get-NetTCPConnection -LocalPort 9000
+---
+
+TDL (Tally Definition Language)
+
+This POC does not ship any TDL files. The operations demonstrated (exporting lists, importing masters using `<IMPORTDATA>` and `<TALLYMESSAGE>` with `<LEDGER>` elements) use Tally's documented XML import/export mechanism and should work with a default TallyPrime installation that has the HTTP/XML server enabled.
+
+If your Tally installation requires custom reports or data fields, you would add the smallest possible TDL fragments on the Tally side to expose those reports or accept custom fields. For basic ledger create/read/update via XML import/export, no TDL was created for this POC.
+
+---
+
+Examples (what the code sends)
+
+ - Export (list of ledgers): built in `lib/tallyProxy.ts` as `buildExportLedgersRequest()` — an `EXPORTDATA` envelope requesting the `Ledger` report (safer default across Tally installations).
+- Create ledger:
+
+```xml
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC><REPORTNAME>All Masters</REPORTNAME></REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE>
+          <LEDGER NAME="Test Ledger" ACTION="Create">
+            <NAME>Test Ledger</NAME>
+            <PARENT>Sundry Debtors</PARENT>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>
 ```
 
-### 2) Test with curl
+- Update ledger (rename): similar `IMPORTDATA` with `<LEDGER NAME="OldName" ACTION="Alter"><NAME>NewName</NAME></LEDGER>`.
 
-```powershell
-curl.exe -v -X POST http://localhost:9000 -H "Content-Type: application/xml; charset=utf-8" --data "<?xml version='1.0' encoding='UTF-8'?><TALLYMESSAGE></TALLYMESSAGE>"
-```
+These examples are implemented in `lib/tallyProxy.ts`.
 
-If TallyPrime is listening and accepting XML requests, curl will show a response. If the port is closed, you will see a connection error.
+---
 
-### 3) Test via Postman
+How to test each flow
 
-- Create a new POST request
-- URL: `http://localhost:9000`
-- Header: `Content-Type: application/xml; charset=utf-8`
-- Body: a minimal XML payload matching Tally's expected format
-- Send it from the same machine
+1. Start TallyPrime and confirm port 9000 is listening (or enable Mock mode if not testing with Tally).
+2. Start the Next.js app (`npm run dev`).
+3. Open `http://localhost:3000`.
+4. Toggle Mock mode OFF to test against a local TallyPrime; leave ON to test without Tally.
+5. Click each button and observe the Raw Response and Error panels. The backend returns a JSON payload containing the raw `request` XML, the raw `text` response from Tally, and the HTTP `status`.
 
-This gives a comparison point for the browser request.
+Example API requests the frontend makes (backend proxies them to Tally):
 
-## What the browser error means
+- `GET /api/tally/status` — sends a small export request and returns raw response
+- `GET /api/tally/get-ledger?name=...` — requests ledger list (server returns raw XML)
+- `POST /api/tally/create-ledger` with JSON `{ name: string, parent?: string }` — posts an IMPORT XML to create the ledger
+- `POST /api/tally/update-ledger` with JSON `{ oldName: string, newName: string }` — posts an ALTER import to update the ledger
 
-The browser error tells you which layer is failing:
+---
 
-- `Failed to fetch` / `ERR_CONNECTION_REFUSED`
-  - network connectivity failure
-  - the browser could not reach `localhost:9000` at all
-  - usually means no Tally listener is active or the port is not bound
+Known limitations
 
-- `CORS policy ... has been blocked by CORS policy`
-  - browser security block
-  - the request reached the network stack or the target, but the browser refused to expose the result due to cross-origin policy
-  - this is not proof that Tally is not listening
+- This POC is unencrypted HTTP on localhost and only intended for local testing.
+- No authentication, tenancy, or production-grade error handling is present.
+- The POC returns raw XML strings from Tally — it does not parse or validate fields beyond simple client-side checks.
+- This repo does not include automated tests against a live TallyPrime instance.
 
-- `Mixed Content` / `secure context`
-  - the page was served in a way that prevents an insecure HTTP request from a secure origin
-  - often happens when the page is loaded from `https://...` instead of `http://localhost:3000`
+---
 
-- HTTP status response like `500`, `400`, or `200` with unexpected XML
-  - Tally responded, but the request was rejected or malformed
-  - this is a Tally response-level issue, not a browser connection failure
+## FEASIBILITY RESULT
 
-## XML payload used by this POC
+The answers below are based on the code implemented in this POC. They describe what the prototype implements and what you can expect when you run it against a properly configured local TallyPrime instance. They should be experimentally verified by running the steps above on a Windows machine with TallyPrime installed.
 
-The XML payload is isolated in one helper file so it is easy to replace:
+- Can the web application communicate with TallyPrime?
+  - Implementation: Yes — the backend implements HTTP POSTs with XML payloads to `http://localhost:9000` via `lib/tallyProxy.ts`.
+  - Note: This is a code-level demonstration. To confirm network-level connectivity, run the app and perform the `Test Tally Connection` flow.
 
-- `lib/tallyRequest.ts`
+- Can we read data?
+  - Implementation: Yes — the endpoint `/api/tally/get-ledger` sends an `EXPORTDATA` request for the `Ledger` report and returns the raw XML response. The POC shows the raw response in the UI.
 
-The exported function:
+- Can we create data?
+  - Implementation: Yes — the endpoint `/api/tally/create-ledger` constructs an `IMPORTDATA` envelope with a minimal `<LEDGER ACTION="Create">` and posts it to Tally.
 
-```ts
-buildMinimalTallyXmlRequest()
-```
+- Can we update data?
+  - Implementation: Yes — the endpoint `/api/tally/update-ledger` constructs an `IMPORTDATA` envelope with `<LEDGER ACTION="Alter">` to update an existing ledger.
 
-returns the minimal XML request body used by the browser.
+- Is TDL required?
+  - Implementation: For the minimal operations demonstrated (exporting ledger lists and importing master `<LEDGER>` items) the POC did not require any TDL file. These operations use Tally's documented XML import/export mechanism.
+  - Caveat: Some Tally configurations or custom fields/reports may require TDL on the Tally side. If you need custom reports or custom fields, add only the minimal TDL that exposes them — do not implement business logic in TDL.
 
-This is intentionally a placeholder test payload, not a claimed working Tally API contract. You should replace it with the exact request format required by your TallyPrime configuration.
+- What TDL functionality was required?
+  - Implementation: None for the basic create/read/update ledger flows in this POC.
 
-## Exact experiment to run after TallyPrime is installed
+- What TallyPrime configuration was required?
+  - Implementation: The only required configuration is enabling TallyPrime's HTTP/XML interface and ensuring it listens on `localhost:9000` (or adjust `TALLY_URL` environment variable accordingly). Exact menu labels may vary by TallyPrime release; consult Tally's official docs if the UI differs.
 
-1. Start TallyPrime with the HTTP/XML interface enabled.
-2. Confirm the Windows service is listening on `localhost:9000` using `netstat` or `curl`.
-3. Start the Next app:
+- Does this work without any additional local software?
+  - Implementation: Yes — provided you have TallyPrime installed and configured to accept HTTP/XML requests on the same machine. No other local agents or software are required for the minimal flows.
 
-```bash
-npm run dev
-```
+- What prevents this from being deployed directly as a cloud-only application?
+  - Constraint: TallyPrime is typically a desktop application that listens on a local port. A cloud-hosted web application cannot directly access a user's local TallyPrime instance unless that instance exposes a network-accessible endpoint (e.g., via port forwarding, VPN, or a locally installed agent that bridges to the cloud).
 
-4. Open `http://localhost:3000` in the browser on the same machine.
-5. Open DevTools and go to the `Network` tab.
-6. Click `Test Tally Connection`.
-7. Look for the request to `http://localhost:9000`.
+- What would be required to connect a cloud-hosted web application to a user's locally running TallyPrime?
+  - Options:
+    1. Local agent: run a small trusted agent on the user's machine that proxies requests between cloud backend and local TallyPrime (requires installation and security considerations).
+    2. Port forwarding / VPN: network-level exposure of the local Tally port to the cloud (typically undesirable for security reasons).
+    3. Secure reverse tunnel: the user's machine establishes an outbound reverse tunnel to a broker service; the cloud app communicates via that broker.
+  - Each option requires additional engineering around security, discovery, and user consent.
 
-### Evidence to collect from DevTools
+---
 
-You should record these details:
+If you want, I can now:
 
-- request name and URL: `http://localhost:9000`
-- request method: `POST`
-- status code: `200`, `500`, `404`, etc.
-- response headers
-- timing information: `Waiting`, `Content Download`, `Total`
-- the response body
-- any Console errors such as:
-  - `Failed to fetch`
-  - `Access to fetch at ... has been blocked by CORS policy`
-  - `Mixed Content` errors
+- Run the Next.js server here and exercise the mock flows automatically, or
+- Help you test against your local TallyPrime instance step-by-step and interpret results, or
+- Add minimal unit tests and a small e2e script that exercises the API routes in mock mode.
 
-### How to distinguish the failure modes
-
-- Network connectivity failure
-  - no request entry appears in Network at all,
-  - or the request fails immediately with `ERR_CONNECTION_REFUSED`,
-  - or `curl` also fails to connect
-
-- Tally response failure
-  - the request appears in Network,
-  - it has an HTTP status like `400`, `500`, or similar,
-  - the browser receives a response body that is empty, malformed, or not expected XML
-
-- Browser CORS/security blocking
-  - the request appears or fails at the browser security layer,
-  - the Console shows CORS or mixed-content errors,
-  - the Network request is blocked before the response is exposed to JS
-
-This is the core distinction this POC is designed to make visible.
-
-## Comparison: curl/Postman
-
-To compare the browser behavior to a non-browser client:
-
-```powershell
-curl.exe -v -X POST http://localhost:9000 -H "Content-Type: application/xml; charset=utf-8" --data @payload.xml
-```
-
-If curl succeeds while the browser fails, then the issue is often browser policy, not local network reachability.
-
-If both fail, then the likely problem is one of:
-
-- TallyPrime not listening on port `9000`
-- Tally HTTP/XML interface disabled
-- incorrect XML payload for the installed Tally configuration
-- firewall or local binding restrictions
-
-## Disclaimer
-
-This project is strictly a connectivity proof-of-concept. It does not claim any official TallyPrime API contract or production-ready integration.
+Which would you like me to do next?

@@ -13,6 +13,7 @@ type ResultState = {
   error: string;
   requestUrl: string;
   mockMode: boolean;
+  parsed?: any | null;
 };
 
 const defaultResult: ResultState = {
@@ -23,6 +24,7 @@ const defaultResult: ResultState = {
   error: "",
   requestUrl: "http://localhost:9000",
   mockMode: false,
+  parsed: null,
 };
 
 const mockResponse = `<?xml version="1.0" encoding="UTF-8"?>
@@ -58,6 +60,17 @@ export default function HomePage() {
   const [isMockEnabled, setIsMockEnabled] = useState<boolean>(
     process.env.NEXT_PUBLIC_USE_MOCK_TALLY === "true",
   );
+  const [showParsed, setShowParsed] = useState<boolean>(true);
+  const [createName, setCreateName] = useState<string>("Test Ledger");
+  const [updateOldName, setUpdateOldName] = useState<string>("Test Ledger");
+  const [updateNewName, setUpdateNewName] = useState<string>(
+    "Test Ledger Renamed",
+  );
+  const [groupCreateName, setGroupCreateName] = useState<string>("Test Group");
+  const [groupParent, setGroupParent] = useState<string>("Primary");
+  const [groupOldName, setGroupOldName] = useState<string>("Test Group");
+  const [groupNewName, setGroupNewName] =
+    useState<string>("Test Group Renamed");
 
   const summaryText = useMemo(() => {
     if (result.connection === "success") {
@@ -84,66 +97,25 @@ export default function HomePage() {
     setResult({
       ...defaultResult,
       connection: "loading",
-      requestUrl: "http://localhost:9000",
+      requestUrl: "/api/tally/status",
       mockMode: isMockEnabled,
     });
 
     try {
-      if (isMockEnabled) {
-        const { response, xml } = await buildMockBody();
-        const elapsed = Date.now() - startedAt;
-        const text = await response.text();
-
-        setResult({
-          connection: "success",
-          statusCode: response.status,
-          responseTimeMs: elapsed,
-          body: text,
-          error:
-            "Mock mode enabled. This simulates the browser receiving a valid Tally-style XML response without needing TallyPrime installed.",
-          requestUrl: "http://localhost:9000 (mock mode)",
-          mockMode: true,
-        });
-
-        console.info("Mock Tally XML payload:", xml);
-        return;
-      }
-
-      const payload = buildMinimalTallyXmlRequest();
-      const response = await fetch("http://localhost:9000", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/xml; charset=utf-8",
-          Accept: "application/xml, text/xml, */*",
-        },
-        body: payload,
-      });
-
+      const resp = await fetch(`/api/tally/status?mock=${isMockEnabled}`);
       const elapsed = Date.now() - startedAt;
-      const responseText = await response.text();
-      const isXmlResponse = /<\?xml|<TALLYMESSAGE|<RESPONSE/i.test(
-        responseText,
-      );
+      const json = await resp.json();
 
       setResult({
-        connection: "success",
-        statusCode: response.status,
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
         responseTimeMs: elapsed,
-        body: responseText,
-        error: response.ok
-          ? ""
-          : `The browser reached the target and received an HTTP ${response.status} response, but the Tally endpoint rejected the request or returned an unexpected payload.`,
-        requestUrl: "http://localhost:9000",
-        mockMode: false,
+        body: json.text || json.error || JSON.stringify(json),
+        parsed: json.parsed ?? null,
+        error: resp.ok ? "" : json.error || "Tally returned an error",
+        requestUrl: "/api/tally/status",
+        mockMode: isMockEnabled,
       });
-
-      if (!isXmlResponse && responseText.trim()) {
-        setResult((current) => ({
-          ...current,
-          error:
-            "The browser received a response, but it does not look like valid Tally XML. This is a malformed or unexpected Tally response.",
-        }));
-      }
     } catch (error: any) {
       const elapsed = Date.now() - startedAt;
       const message = error instanceof Error ? error.message : String(error);
@@ -190,9 +162,214 @@ export default function HomePage() {
         responseTimeMs: elapsed,
         body: "",
         error: normalizedError,
-        requestUrl: "http://localhost:9000",
+        requestUrl: "/api/tally/status",
         mockMode: false,
       });
+    }
+  };
+
+  const handleGetLedger = async (name?: string) => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const q = new URLSearchParams();
+      if (isMockEnabled) q.set("mock", "true");
+      if (name) q.set("name", name);
+
+      const resp = await fetch(`/api/tally/get-ledger?${q.toString()}`);
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/get-ledger",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
+    }
+  };
+
+  const handleGetGroups = async () => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const q = new URLSearchParams();
+      if (isMockEnabled) q.set("mock", "true");
+
+      const resp = await fetch(`/api/tally/get-group?${q.toString()}`);
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/get-group",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const resp = await fetch(`/api/tally/create-group`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: groupCreateName,
+          parent: groupParent,
+          mock: isMockEnabled,
+        }),
+      });
+
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        parsed: json.parsed ?? null,
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/create-group",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
+    }
+  };
+
+  const handleUpdateGroup = async () => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const resp = await fetch(`/api/tally/update-group`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          oldName: groupOldName,
+          newName: groupNewName,
+          mock: isMockEnabled,
+        }),
+      });
+
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        parsed: json.parsed ?? null,
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/update-group",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
+    }
+  };
+
+  const handleCreateLedger = async () => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const resp = await fetch(`/api/tally/create-ledger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: createName, mock: isMockEnabled }),
+      });
+
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        parsed: json.parsed ?? null,
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/create-ledger",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
+    }
+  };
+
+  const handleUpdateLedger = async () => {
+    const startedAt = Date.now();
+    setResult({
+      ...defaultResult,
+      connection: "loading",
+      mockMode: isMockEnabled,
+    });
+
+    try {
+      const resp = await fetch(`/api/tally/update-ledger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          oldName: updateOldName,
+          newName: updateNewName,
+          mock: isMockEnabled,
+        }),
+      });
+
+      const elapsed = Date.now() - startedAt;
+      const json = await resp.json();
+
+      setResult({
+        connection: resp.ok ? "success" : "error",
+        statusCode: json.status ?? resp.status,
+        responseTimeMs: elapsed,
+        body: json.text || json.error || JSON.stringify(json),
+        parsed: json.parsed ?? null,
+        error: resp.ok ? "" : json.error || "",
+        requestUrl: "/api/tally/update-ledger",
+        mockMode: isMockEnabled,
+      });
+    } catch (err: any) {
+      setResult({ ...defaultResult, connection: "error", error: String(err) });
     }
   };
 
@@ -219,6 +396,75 @@ export default function HomePage() {
             />
             Enable Mock Tally mode
           </label>
+
+          <div className='crud'>
+            <div className='crud-card'>
+              <h3>Ledgers</h3>
+              <div className='crud-row'>
+                <button onClick={() => handleGetLedger()}>Get Ledgers</button>
+              </div>
+
+              <div className='crud-row'>
+                <label className='label'>Create ledger</label>
+                <input
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                />
+                <button onClick={handleCreateLedger}>Create</button>
+              </div>
+
+              <div className='crud-row'>
+                <label className='label'>Update ledger</label>
+                <input
+                  value={updateOldName}
+                  onChange={(e) => setUpdateOldName(e.target.value)}
+                  placeholder='Existing name'
+                />
+                <input
+                  value={updateNewName}
+                  onChange={(e) => setUpdateNewName(e.target.value)}
+                  placeholder='New name'
+                />
+                <button onClick={handleUpdateLedger}>Update</button>
+              </div>
+            </div>
+
+            <div className='crud-card'>
+              <h3>Groups</h3>
+              <div className='crud-row'>
+                <button onClick={() => handleGetGroups()}>Get Groups</button>
+              </div>
+
+              <div className='crud-row'>
+                <label className='label'>Create group</label>
+                <input
+                  value={groupCreateName}
+                  onChange={(e) => setGroupCreateName(e.target.value)}
+                />
+                <input
+                  value={groupParent}
+                  onChange={(e) => setGroupParent(e.target.value)}
+                  placeholder='Parent group'
+                />
+                <button onClick={handleCreateGroup}>Create</button>
+              </div>
+
+              <div className='crud-row'>
+                <label className='label'>Update group</label>
+                <input
+                  value={groupOldName}
+                  onChange={(e) => setGroupOldName(e.target.value)}
+                  placeholder='Existing name'
+                />
+                <input
+                  value={groupNewName}
+                  onChange={(e) => setGroupNewName(e.target.value)}
+                  placeholder='New name'
+                />
+                <button onClick={handleUpdateGroup}>Update</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className='status-row'>
@@ -253,8 +499,21 @@ export default function HomePage() {
         </div>
 
         <div className='panel'>
-          <h2>Raw response body</h2>
-          <pre>{result.body || "<no response body>"}</pre>
+          <h2>Response body</h2>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type='checkbox'
+              checked={showParsed}
+              onChange={(e) => setShowParsed(e.target.checked)}
+            />
+            Show parsed JSON when available
+          </label>
+
+          {showParsed && result.parsed ? (
+            <pre>{JSON.stringify(result.parsed, null, 2)}</pre>
+          ) : (
+            <pre>{result.body || "<no response body>"}</pre>
+          )}
         </div>
 
         <div className='panel error-panel'>

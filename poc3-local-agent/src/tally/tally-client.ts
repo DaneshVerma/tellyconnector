@@ -1,24 +1,46 @@
 import * as http from "http";
 import { TALLY_HOST, TALLY_PORT, TALLY_TIMEOUT_MS, log } from "../config";
-import { parseXml } from "./xml-parser";
 import {
-  buildImportLedgerXml,
+  buildCreateLedgerXml,
+  buildAlterLedgerXml,
+  buildInactivateLedgerXml,
+  buildCreateGroupXml,
+  buildCreateStockItemXml,
+  buildCreateUnitXml,
+  buildCreateVoucherXml,
   buildExportListAccountsXml,
   buildExportLedgerXml,
   buildExportBalanceSheetXml,
   buildExportTrialBalanceXml,
+  buildExportDayBookXml,
+  buildExportProfitLossXml,
+  buildExportStockSummaryXml,
   buildExportVariants,
-  buildInactivateLedgerXml,
+  type VoucherEntry,
 } from "./xml-builder";
 
 const BASE_URL = `http://${TALLY_HOST}:${TALLY_PORT}`;
 
-export type PResult = {
+// ── Types ───────────────────────────────────────────────────────────
+
+export type TallyResult = {
   success: boolean;
   status: string;
   message: string;
   rawResponse?: string;
+  data?: any;
 };
+
+export type ImportCounts = {
+  created: number;
+  altered: number;
+  deleted: number;
+  errors: number;
+  exceptions: number;
+  cancelled: number;
+};
+
+// ── HTTP transport ──────────────────────────────────────────────────
 
 async function doPost(
   xml: string,
@@ -49,20 +71,12 @@ async function doPost(
 
     req.on("timeout", () => {
       req.destroy();
-      log("http.error", {
-        url: BASE_URL,
-        duration: Date.now() - start,
-        error: "Timeout",
-      });
+      log("http.error", { url: BASE_URL, duration: Date.now() - start, error: "Timeout" });
       resolve({ ok: false, error: "Timeout" });
     });
 
     req.on("error", (err) => {
-      log("http.error", {
-        url: BASE_URL,
-        duration: Date.now() - start,
-        error: err.message,
-      });
+      log("http.error", { url: BASE_URL, duration: Date.now() - start, error: err.message });
       resolve({ ok: false, error: err.message });
     });
 
@@ -71,10 +85,10 @@ async function doPost(
   });
 }
 
+// ── Response helpers ────────────────────────────────────────────────
+
 function isUnknownRequest(text: string) {
-  return (
-    text.includes("Unknown Request") || text.includes("cannot be processed")
-  );
+  return text.includes("Unknown Request") || text.includes("cannot be processed");
 }
 
 function isLineError(text: string) {
@@ -83,11 +97,10 @@ function isLineError(text: string) {
 
 function extractLineError(text: string): string | null {
   const m = text.match(/<LINEERROR>(.*?)<\/LINEERROR>/);
-  return m ? m[1] : null;
+  return m ? m[1].replace(/&apos;/g, "'").replace(/&amp;/g, "&") : null;
 }
 
-/** Parse a Tally import response to extract CREATED / ALTERED / ERRORS counts */
-function parseImportResponse(text: string) {
+function parseImportCounts(text: string): ImportCounts {
   const get = (tag: string) => {
     const m = text.match(new RegExp(`<${tag}>(\\d+)</${tag}>`));
     return m ? Number(m[1]) : 0;
@@ -102,156 +115,188 @@ function parseImportResponse(text: string) {
   };
 }
 
+/** Common import result handler */
+async function doImport(
+  xml: string,
+  op: string,
+  entityLabel: string,
+): Promise<TallyResult & { counts?: ImportCounts }> {
+  const start = Date.now();
+  const res = await doPost(xml);
+  const duration = Date.now() - start;
+
+  if (!res.ok) {
+    log(op, { duration, success: false, error: res.error });
+    return { success: false, status: "error", message: `Connection failed: ${res.error}`, rawResponse: res.error };
+  }
+
+  if (isUnknownRequest(res.text)) {
+    log(op, { duration, success: false, note: "unknown_request" });
+    return { success: false, status: "unknown_request", message: `Tally rejected the ${entityLabel} request`, rawResponse: res.text };
+  }
+
+  if (isLineError(res.text)) {
+    const err = extractLineError(res.text);
+    log(op, { duration, success: false, note: "line_error", error: err });
+    return { success: false, status: "line_error", message: `Tally error: ${err}`, rawResponse: res.text };
+  }
+
+  const counts = parseImportCounts(res.text);
+  const ok = counts.created > 0 || counts.altered > 0;
+  
+  let exDetail = "";
+  if (counts.exceptions > 0) {
+    exDetail = ` (Note: Tally rejected the request due to invalid data, e.g., missing parent group or ledger. Check Tally.imp for details.)`;
+  } else if (counts.errors > 0) {
+    exDetail = ` (Note: Syntax or data format error.)`;
+  }
+
+  log(op, { duration, success: ok, ...counts });
+  return {
+    success: ok,
+    status: ok ? "ok" : "no_change",
+    message: ok
+      ? `${entityLabel} successful — created: ${counts.created}, altered: ${counts.altered}`
+      : `Failed: Tally processed but nothing changed (errors: ${counts.errors}, exceptions: ${counts.exceptions})${exDetail}`,
+    rawResponse: res.text,
+    counts,
+  };
+}
+
+/** Common export result handler */
+async function doExport(
+  xml: string,
+  op: string,
+  label: string,
+): Promise<TallyResult> {
+  const start = Date.now();
+  const res = await doPost(xml);
+  const duration = Date.now() - start;
+
+  if (!res.ok) {
+    log(op, { duration, success: false, error: res.error });
+    return { success: false, status: "error", message: `Connection failed: ${res.error}`, rawResponse: res.error };
+  }
+
+  if (isUnknownRequest(res.text)) {
+    log(op, { duration, success: false, note: "unknown_request" });
+    return { success: false, status: "unknown_request", message: `Tally cannot export ${label}`, rawResponse: res.text };
+  }
+
+  if (isLineError(res.text)) {
+    const err = extractLineError(res.text);
+    log(op, { duration, success: false, note: "line_error", error: err });
+    return { success: false, status: "line_error", message: `Tally error: ${err}`, rawResponse: res.text };
+  }
+
+  log(op, { duration, success: true });
+  return { success: true, status: "ok", message: `${label} exported`, rawResponse: res.text };
+}
+
+// ── TallyClient ─────────────────────────────────────────────────────
+
 export class TallyClient {
-  /** Quick connection test — exports "List of Accounts" which always exists */
-  async checkConnection(): Promise<PResult> {
-    const op = "checkConnection";
-    const start = Date.now();
-    const xml = buildExportListAccountsXml();
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return {
-        success: false,
-        status: "error",
-        message: `Connection failed: ${res.error}`,
-        rawResponse: res.error,
-      };
-    }
 
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request", raw: res.text });
-      return {
-        success: false,
-        status: "unknown_request",
-        message: "Tally returned 'Unknown Request' — check HTTP interface settings",
-        rawResponse: res.text,
-      };
-    }
+  // ── Connection ──────────────────────────────────────────────────
+  async checkConnection(): Promise<TallyResult> {
+    return doExport(buildExportListAccountsXml(), "checkConnection", "Connection test");
+  }
 
-    if (isLineError(res.text)) {
-      const err = extractLineError(res.text);
-      log(op, { duration, success: false, note: "line_error", error: err });
-      return {
-        success: false,
-        status: "line_error",
-        message: `Tally error: ${err}`,
-        rawResponse: res.text,
-      };
-    }
+  // ── Ledger CRUD ─────────────────────────────────────────────────
+  async createLedger(name: string, parent = "Sundry Debtors") {
+    return doImport(buildCreateLedgerXml(name, parent), "createLedger", "Ledger create");
+  }
 
-    log(op, { duration, success: true });
+  async updateLedger(name: string, newParent: string) {
+    return doImport(buildAlterLedgerXml(name, newParent), "updateLedger", "Ledger update");
+  }
+
+  async deleteLedger(name: string) {
+    return doImport(buildInactivateLedgerXml(name), "deleteLedger", "Ledger delete (inactivate)");
+  }
+
+  async readLedger(name: string): Promise<TallyResult> {
+    const res = await doExport(buildExportListAccountsXml(), "readLedger", "Accounts");
+    if (!res.success) return res;
+    const found = res.rawResponse?.includes(name) ?? false;
     return {
-      success: true,
-      status: "ok",
-      message: "Tally is connected and responding",
-      rawResponse: res.text,
+      ...res,
+      status: found ? "found" : "not_found",
+      message: found ? `Ledger "${name}" found` : `Ledger "${name}" not found in accounts`,
     };
   }
 
-  /** Export account list from Tally */
-  async listAccounts(): Promise<PResult> {
-    const op = "listAccounts";
-    const start = Date.now();
-    const xml = buildExportListAccountsXml();
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
-
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request" });
-      return { success: false, status: "unknown_request", message: "Export not accepted", rawResponse: res.text };
-    }
-
-    if (isLineError(res.text)) {
-      const err = extractLineError(res.text);
-      log(op, { duration, success: false, note: "line_error", error: err });
-      return { success: false, status: "line_error", message: `Tally error: ${err}`, rawResponse: res.text };
-    }
-
-    log(op, { duration, success: true });
-    return { success: true, status: "ok", message: "Accounts exported", rawResponse: res.text };
+  // ── Group CRUD ──────────────────────────────────────────────────
+  async createGroup(name: string, parent = "Primary") {
+    return doImport(buildCreateGroupXml(name, parent), "createGroup", "Group create");
   }
 
-  /** Export Balance Sheet */
-  async getBalanceSheet(): Promise<PResult> {
-    const op = "getBalanceSheet";
-    const start = Date.now();
-    const xml = buildExportBalanceSheetXml();
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
-
-    if (isUnknownRequest(res.text) || isLineError(res.text)) {
-      log(op, { duration, success: false });
-      return { success: false, status: "error", message: "Export failed", rawResponse: res.text };
-    }
-
-    log(op, { duration, success: true });
-    return { success: true, status: "ok", message: "Balance Sheet exported", rawResponse: res.text };
+  // ── Stock Item CRUD ─────────────────────────────────────────────
+  async createStockItem(name: string, group = "Primary", unit = "Nos") {
+    return doImport(buildCreateStockItemXml(name, group, unit), "createStockItem", "Stock Item create");
   }
 
-  /** Export Trial Balance */
-  async getTrialBalance(): Promise<PResult> {
-    const op = "getTrialBalance";
-    const start = Date.now();
-    const xml = buildExportTrialBalanceXml();
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
-
-    if (isUnknownRequest(res.text) || isLineError(res.text)) {
-      log(op, { duration, success: false });
-      return { success: false, status: "error", message: "Export failed", rawResponse: res.text };
-    }
-
-    log(op, { duration, success: true });
-    return { success: true, status: "ok", message: "Trial Balance exported", rawResponse: res.text };
+  // ── Unit of Measure ─────────────────────────────────────────────
+  async createUnit(symbol: string, formalName?: string) {
+    return doImport(buildCreateUnitXml(symbol, formalName), "createUnit", "Unit create");
   }
 
-  async probeExportVariants(): Promise<
-    { name: string; success: boolean; status: string; raw: string }[]
-  > {
+  // ── Voucher (Transaction) CRUD ──────────────────────────────────
+  async createVoucher(opts: {
+    type: string;
+    date: string;
+    narration: string;
+    partyLedger?: string;
+    entries: VoucherEntry[];
+  }) {
+    return doImport(buildCreateVoucherXml(opts), "createVoucher", `${opts.type} voucher`);
+  }
+
+  // ── Exports ─────────────────────────────────────────────────────
+  async listAccounts() {
+    return doExport(buildExportListAccountsXml(), "listAccounts", "List of Accounts");
+  }
+
+  async getBalanceSheet() {
+    return doExport(buildExportBalanceSheetXml(), "getBalanceSheet", "Balance Sheet");
+  }
+
+  async getTrialBalance() {
+    return doExport(buildExportTrialBalanceXml(), "getTrialBalance", "Trial Balance");
+  }
+
+  async getDayBook() {
+    return doExport(buildExportDayBookXml(), "getDayBook", "Day Book");
+  }
+
+  async getProfitLoss() {
+    return doExport(buildExportProfitLossXml(), "getProfitLoss", "Profit & Loss");
+  }
+
+  async getStockSummary() {
+    return doExport(buildExportStockSummaryXml(), "getStockSummary", "Stock Summary");
+  }
+
+  async probeExportVariants() {
     const variants = buildExportVariants();
-    const results: {
-      name: string;
-      success: boolean;
-      status: string;
-      raw: string;
-    }[] = [];
+    const results: { name: string; success: boolean; status: string; raw: string }[] = [];
+
     for (const v of variants) {
       const start = Date.now();
       const res = await doPost(v.xml);
       const duration = Date.now() - start;
       if (!res.ok) {
-        log("probe", { variant: v.name, duration, success: false, error: res.error });
         results.push({ name: v.name, success: false, status: "network_error", raw: res.error });
         continue;
       }
-
       if (isUnknownRequest(res.text)) {
-        log("probe", { variant: v.name, duration, success: false, note: "unknown_request" });
-        results.push({ name: v.name, success: false, status: "unknown_request", raw: res.text });
+        results.push({ name: v.name, success: false, status: "unknown_request", raw: "" });
         continue;
       }
-
       if (isLineError(res.text)) {
-        const err = extractLineError(res.text) ?? "unknown";
-        log("probe", { variant: v.name, duration, success: false, note: "line_error", error: err });
-        results.push({ name: v.name, success: false, status: `line_error: ${err}`, raw: res.text });
+        results.push({ name: v.name, success: false, status: `error: ${extractLineError(res.text)}`, raw: "" });
         continue;
       }
-
       log("probe", { variant: v.name, duration, success: true });
       results.push({ name: v.name, success: true, status: "ok", raw: res.text.substring(0, 200) });
     }
@@ -259,124 +304,88 @@ export class TallyClient {
     return results;
   }
 
-  async createLedger(ledgerName: string, parent = "Sundry Debtors"): Promise<PResult> {
-    const op = "createLedger";
-    const start = Date.now();
-    const xml = buildImportLedgerXml(ledgerName, parent);
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
+  // ── Demo: Create sample data ────────────────────────────────────
+  async runDemo(onProgress: (msg: string, res: TallyResult) => void) {
+    const today = new Date();
+    // Use the 1st of the current month to ensure it works in Tally Educational Mode!
+    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}01`;
 
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request", raw: res.text });
-      return { success: false, status: "unknown_request", message: "Import not accepted", rawResponse: res.text };
-    }
+    // 1. Create unit
+    const u = await this.createUnit("Nos", "Numbers");
+    onProgress(`Create unit "Nos"`, u);
 
-    const counts = parseImportResponse(res.text);
-    const ok = counts.created > 0 || counts.altered > 0;
-    log(op, { duration, success: ok, ...counts });
-    return {
-      success: ok,
-      status: ok ? "created" : "not_created",
-      message: ok
-        ? `Ledger created (created=${counts.created}, altered=${counts.altered})`
-        : `Tally processed but nothing created (errors=${counts.errors}, exceptions=${counts.exceptions}). Check if ledger already exists or parent group is valid.`,
-      rawResponse: res.text,
-    };
-  }
+    // 2. Create ledger groups
+    const g1 = await this.createGroup("Demo Customers", "Sundry Debtors");
+    onProgress(`Create group "Demo Customers" under Sundry Debtors`, g1);
 
-  async readLedger(ledgerName: string): Promise<PResult> {
-    const op = "readLedger";
-    const start = Date.now();
-    const xml = buildExportListAccountsXml();
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
+    const g2 = await this.createGroup("Demo Suppliers", "Sundry Creditors");
+    onProgress(`Create group "Demo Suppliers" under Sundry Creditors`, g2);
 
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request", raw: res.text });
-      return { success: false, status: "unknown_request", message: "Export not accepted", rawResponse: res.text };
-    }
+    // 3. Create ledgers
+    const l1 = await this.createLedger("Acme Corp", "Demo Customers");
+    onProgress(`Create ledger "Acme Corp" (customer)`, l1);
 
-    if (isLineError(res.text)) {
-      const err = extractLineError(res.text);
-      log(op, { duration, success: false, note: "line_error", error: err });
-      return { success: false, status: "line_error", message: `Tally error: ${err}`, rawResponse: res.text };
-    }
+    const l2 = await this.createLedger("Widget Supply Co", "Demo Suppliers");
+    onProgress(`Create ledger "Widget Supply Co" (supplier)`, l2);
 
-    // Attempt to find ledger by name in response
-    const found = res.text.includes(ledgerName);
-    log(op, { duration, success: true, found });
-    return {
-      success: true,
-      status: found ? "found" : "not_found",
-      message: found ? `Ledger '${ledgerName}' found` : `Ledger '${ledgerName}' not present in accounts list`,
-      rawResponse: res.text,
-    };
-  }
+    const l3 = await this.createLedger("Sales Account", "Sales Accounts");
+    onProgress(`Create ledger "Sales Account"`, l3);
 
-  async updateLedger(ledgerName: string, parent = "Sundry Debtors"): Promise<PResult> {
-    const op = "updateLedger";
-    const start = Date.now();
-    // Tally treats import of existing name as an update
-    const xml = buildImportLedgerXml(ledgerName, parent);
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
+    const l4 = await this.createLedger("Purchase Account", "Purchase Accounts");
+    onProgress(`Create ledger "Purchase Account"`, l4);
 
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request", raw: res.text });
-      return { success: false, status: "unknown_request", message: "Update not accepted", rawResponse: res.text };
-    }
+    // 4. Create stock item
+    const si = await this.createStockItem("Demo Widget", "Primary", "Nos");
+    onProgress(`Create stock item "Demo Widget"`, si);
 
-    const counts = parseImportResponse(res.text);
-    const ok = counts.created > 0 || counts.altered > 0;
-    log(op, { duration, success: ok, ...counts });
-    return {
-      success: ok,
-      status: ok ? "updated" : "not_updated",
-      message: ok
-        ? `Ledger updated (created=${counts.created}, altered=${counts.altered})`
-        : `Tally processed but nothing changed (errors=${counts.errors}, exceptions=${counts.exceptions})`,
-      rawResponse: res.text,
-    };
-  }
+    // 5. Create a purchase voucher
+    const pv = await this.createVoucher({
+      type: "Purchase",
+      date: dateStr,
+      narration: "Purchased 10 Demo Widgets from Widget Supply Co",
+      partyLedger: "Widget Supply Co",
+      entries: [
+        { ledger: "Purchase Account", amount: 5000, isDeemedPositive: true },
+        { ledger: "Widget Supply Co", amount: -5000, isDeemedPositive: false },
+      ],
+    });
+    onProgress(`Create purchase voucher (₹5,000 from Widget Supply Co)`, pv);
 
-  async deleteLedger(ledgerName: string): Promise<PResult> {
-    const op = "deleteLedger";
-    const start = Date.now();
-    const xml = buildInactivateLedgerXml(ledgerName);
-    const res = await doPost(xml);
-    const duration = Date.now() - start;
-    if (!res.ok) {
-      log(op, { duration, success: false, error: res.error });
-      return { success: false, status: "error", message: "Connection failed", rawResponse: res.error };
-    }
+    // 6. Create a sales voucher
+    const sv = await this.createVoucher({
+      type: "Sales",
+      date: dateStr,
+      narration: "Sold 5 Demo Widgets to Acme Corp",
+      partyLedger: "Acme Corp",
+      entries: [
+        { ledger: "Acme Corp", amount: -4000, isDeemedPositive: true },
+        { ledger: "Sales Account", amount: 4000, isDeemedPositive: false },
+      ],
+    });
+    onProgress(`Create sales voucher (₹4,000 to Acme Corp)`, sv);
 
-    if (isUnknownRequest(res.text)) {
-      log(op, { duration, success: false, note: "unknown_request", raw: res.text });
-      return { success: false, status: "unknown_request", message: "Delete/inactivate not accepted", rawResponse: res.text };
-    }
+    // 7. Create a receipt voucher (Acme pays partial)
+    const rv = await this.createVoucher({
+      type: "Receipt",
+      date: dateStr,
+      narration: "Received partial payment from Acme Corp",
+      entries: [
+        { ledger: "Cash", amount: -2000, isDeemedPositive: true },
+        { ledger: "Acme Corp", amount: 2000, isDeemedPositive: false },
+      ],
+    });
+    onProgress(`Create receipt voucher (₹2,000 received from Acme Corp)`, rv);
 
-    const counts = parseImportResponse(res.text);
-    const ok = counts.altered > 0;
-    log(op, { duration, success: ok, ...counts });
-    return {
-      success: ok,
-      status: ok ? "inactivated" : "not_found",
-      message: ok
-        ? "Ledger marked inactive (soft delete)"
-        : `Nothing changed — ledger may not exist (errors=${counts.errors}, exceptions=${counts.exceptions})`,
-      rawResponse: res.text,
-    };
+    // 8. Create a payment voucher (pay supplier partial)
+    const pmv = await this.createVoucher({
+      type: "Payment",
+      date: dateStr,
+      narration: "Paid partial amount to Widget Supply Co",
+      entries: [
+        { ledger: "Widget Supply Co", amount: -3000, isDeemedPositive: true },
+        { ledger: "Cash", amount: 3000, isDeemedPositive: false },
+      ],
+    });
+    onProgress(`Create payment voucher (₹3,000 paid to Widget Supply Co)`, pmv);
   }
 }

@@ -12,9 +12,12 @@
   --warning: #b45309;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   font-family: Arial, Helvetica, sans-serif;
@@ -65,11 +68,50 @@ h1 {
 
 .controls {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 22px;
+}
+
+.crud {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0; /* allow grid to shrink inside flex container */
+}
+
+.crud-card {
+  border: 1px solid var(--border);
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+}
+
+.crud-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap; /* prevent long rows from overflowing horizontally */
+}
+
+input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  min-width: 0; /* allow inputs to shrink in flex layouts */
+}
+
+.crud-row input {
+  flex: 1 1 160px; /* grow, shrink, base width */
+  max-width: 100%;
+}
+
+.crud-row button {
+  flex: 0 0 auto; /* ensure buttons don't stretch and stay inline */
 }
 
 .toggle {
@@ -107,10 +149,22 @@ h1 {
   font-size: 0.72rem;
 }
 
-.status.idle { background: #e5e7eb; color: #374151; }
-.status.loading { background: #dbeafe; color: #1d4ed8; }
-.status.success { background: #dcfce7; color: var(--success); }
-.status.error { background: #fee2e2; color: var(--danger); }
+.status.idle {
+  background: #e5e7eb;
+  color: #374151;
+}
+.status.loading {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.status.success {
+  background: #dcfce7;
+  color: var(--success);
+}
+.status.error {
+  background: #fee2e2;
+  color: var(--danger);
+}
 
 .detail-grid {
   display: grid;
@@ -145,7 +199,7 @@ pre {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: Consolas, 'Courier New', monospace;
+  font-family: Consolas, "Courier New", monospace;
   font-size: 0.85rem;
   line-height: 1.5;
 }
@@ -157,6 +211,9 @@ pre {
 
 @media (max-width: 760px) {
   .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .crud {
     grid-template-columns: 1fr;
   }
 }
