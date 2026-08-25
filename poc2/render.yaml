@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: tallyprime-cloud-probe
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
