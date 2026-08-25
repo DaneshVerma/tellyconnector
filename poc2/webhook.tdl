@@ -1,0 +1,23 @@
+[#Form: Voucher]
+    ;; Triggers when a voucher is saved or accepted
+    On : Form Accept : Yes : Call : PushVoucherToCloud
+
+[Function: PushVoucherToCloud]
+    Variable : CloudURL   : String
+    Variable : Payload    : String
+    Variable : Response   : String
+    Variable : Headers    : String
+
+    00 : Set : CloudURL : "https://https://tellyconnector.onrender.com/api/tally/webhook/"
+    
+    ;; Capture the current voucher XML representation
+    10 : Set : Payload  : $$SysName:CRLF + $$String:$VoucherNumber + "," + $$String:$Date + ","     + $$String:$Amount
+    
+    ;; Set request headers
+    20 : Set : Headers  : "Content-Type: application/json"
+
+    ;; Perform native outbound HTTP POST directly from Tally engine
+    30 : Set : Response : $$HTTPPost:##CloudURL:##Payload:##Headers
+    
+    ;; Log response in Tally console/calc pane for debugging
+    40 : Log : ##Response
