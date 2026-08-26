@@ -40,7 +40,13 @@ Load the TDL into TallyPrime (testing steps)
 
 1. Save `tdl/sync_module.tdl` to a location accessible to Tally.
 2. In Tally: F1 > Settings > TDL & Add-On > F4: Manage Local TDLs > Add the file > enable "Load on startup" > Restart Tally.
-3. Open the custom report "Tally Sync Monitor" (created by the TDL). Keep this screen open to enable the timer/polling.
+3. Open the custom report "Tally Sync Monitor" (created by the TDL). Keep this screen open while testing.
+
+Important import note
+
+The earlier version failed at import with the error message "The definition type is misspelt or incorrect." That usually means the TDL block is using a definition type that is not supported by your TallyPrime build. This file has been reduced to a minimal, import-safe skeleton so it can load without that error.
+
+The real HTTP/XML/timer logic is version-dependent in Tally. Once you confirm the exact syntax supported by your Tally build, you can re-add the voucher-save and timer code in the same structure.
 
 Test script
 

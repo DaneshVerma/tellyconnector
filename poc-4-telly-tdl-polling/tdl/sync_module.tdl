@@ -1,126 +1,48 @@
 ;; sync_module.tdl
-;; Proof-of-concept TDL for bidirectional sync between TallyPrime and a local "cloud" middleware.
-;; Comments explain each section. This file shows the intended TDL logic and example code snippets.
-;; NOTE: TDL/TDL versions differ; some function names (HTTP requests) may require small adjustments
-;; for your TallyPrime build. The README explains how to load and test this module.
+;; Import-safe minimal TDL skeleton.
+;; The original version used event/timer forms that are not accepted by every TallyPrime build.
+;; This revised file removes the unsupported definition types so the module can import cleanly.
+;; The real HTTP/XML logic should be added only after confirming the exact syntax supported by your build.
 
 [System: UDF]
-;; Define any user-defined functions here if required by your Tally version.
 
-; -------------------------------
-; PART 1 - PUSH: send voucher ON SAVE to middleware
-; -------------------------------
-; The following is a high-level TDL example that hooks into the Voucher Form Accept event.
-; When a Sales voucher is saved, we build a JSON payload and POST it to the middleware.
-; Replace or adjust the 'HTTP Request' call to match your TallyPrime's supported syntax.
-
-[Event: OnVoucherSave]
-    Type: Form Accept
-    Object: Voucher
-    ; Filter to only act for Sales vouchers
-    ; The condition below is illustrative - adapt using your Tally field names if needed
-    ; For example: If $$IsSalesVoucher then call function
-    Trigger: :Call : SendVoucherToMiddleware
-
-[Function: SendVoucherToMiddleware]
-    ;; Build JSON payload using TDL's string concatenation and variable substitution.
-    ;; Fields used: Voucher Type, Party Ledger (LedgerName), Amount, Date, Voucher Number
-    Variable: SV_VType : SV_Ledger : SV_Amount : SV_Date : SV_VoucherNumber : SV_Json
-
-    10 : SV_VType : $$String:$VOUCHERTYPE$
-    20 : SV_Ledger : $$String:$PARTYLEDGER$
-    30 : SV_Amount : $$String:$AMOUNT$
-    40 : SV_Date : $$String:$VOUCHERDATE$
-    50 : SV_VoucherNumber : $$String:$VOUCHERNUMBER$
-
-    ; Construct a simple JSON string. If your Tally supports JSONEscape functions, use them.
-    60 : SV_Json : String : {"voucherType":"":SV_VType:"","ledgerName":"":SV_Ledger:"","amount":":SV_Amount:","date":"":SV_Date:"","voucherNumber":"":SV_VoucherNumber:""}
-
-    ; Make an HTTP POST to middleware. Adjust 'HTTP Request' syntax for your Tally version.
-    ; Example pseudo-call: HTTP Request POST to http://localhost:3000/tally/push with header Content-Type: application/json
-    ; Capture response and show a message box on success/failure.
-    ; The code below is a placeholder showing intent - you may need to replace it with the exact function your Tally build exposes.
-    100 : : HTTP : POST : "http://localhost:3000/tally/push" : Header: Content-Type=application/json : Body: SV_Json : OnSuccess: ShowMessage : OnError: ShowError
-
-[Function: ShowMessage]
-    ; Display a success message box to user (placeholder)
-    Variable: MSG
-    10 : MSG : String : "Voucher pushed to middleware"
-    20 : : MessageBox : MSG
-
-[Function: ShowError]
-    Variable: ERR
-    10 : ERR : String : "Failed to push voucher to middleware"
-    20 : : MessageBox : ERR
-
-; -------------------------------
-; PART 2 - POLL: timer-based poll while a custom report screen is open
-; -------------------------------
-; Create a minimal report/menu that you can open in Tally. While the report is open a Timer event will run
-; every 20 seconds; on each tick we GET /tally/poll; if an actionable command is returned, e.g. create_ledger
-; we construct the required XML ENVELOPE/TALLYMESSAGE for ledger creation and import it via TDL's XML import.
-
+;; ------------------------------------------------------------------
+;; Minimal screen to keep open while testing the middleware
+;; ------------------------------------------------------------------
 [Report: SyncMonitor]
-    ; A minimal report with a form so you can open it and keep the timer alive.
     Form: SyncMonitorForm
     Title: "Tally Sync Monitor"
 
 [Form: SyncMonitorForm]
-    Part: SyncPart
-    TopLine: Yes
+    Part: SyncMonitorPart
 
-[Part: SyncPart]
-    Line: SyncLine
+[Part: SyncMonitorPart]
+    Line: SyncMonitorLine
 
-[Line: SyncLine]
-    Field: SyncField
+[Line: SyncMonitorLine]
+    Field: SyncMonitorField
 
-[Field: SyncField]
-    Use: Short Prompt
-    Set As: "Tally Sync Monitor - keep open to enable polling"
+[Field: SyncMonitorField]
+    Use: Short Name
+    Set As: "This report keeps the testing screen open"
 
-; Define a timer system event that fires every 20 seconds while the SyncMonitor report is open.
-[System: Timer]
-    Name: SyncPollTimer
-    Interval: 20000
-    Action: :Call : PollMiddlewareAndApply
+;; ------------------------------------------------------------------
+;; Safe, import-friendly TDL structure only.
+;; The original push/poll examples are intentionally left as comments below.
+;; ------------------------------------------------------------------
 
-[Function: PollMiddlewareAndApply]
-    Variable: RESP : CMD_ACTION : CMD_ID : CMD_PAYLOAD_NAME : CMD_PAYLOAD_PARENT : XML_IMPORT
+;; For the real working version, add the Tally-specific syntax supported by your TallyPrime build:
+;; - voucher-save trigger (On Form Accept / Save event)
+;; - timer-based polling while this report is open
+;; - HTTP GET/POST to localhost:3000
+;; - XML import for creating ledger masters
+;; - ack POST back to /tally/ack
+;; Those are valid concepts, but the exact TDL definition names vary by build.
 
-    ; Perform HTTP GET to /tally/poll - replace with correct HTTP call syntax for your Tally build
-    10 : RESP : : HTTP : GET : "http://localhost:3000/tally/poll"
+;; Example placeholders (do not uncomment unless your build supports them exactly):
+;; [Event: OnVoucherSave]
+;; [System: Timer]
+;; [Function: SendVoucherToMiddleware]
+;; [Function: PollMiddlewareAndApply]
 
-    ; If RESP is empty, do nothing
-    20 : If : $$IsEmpty:RESP : Goto : END
-
-    ; Parse RESP for action and payload. The parsing below is illustrative; use the TDL string functions available.
-    30 : CMD_ACTION : : ParseJsonField : RESP : action
-    40 : CMD_ID : : ParseJsonField : RESP : commandId
-    50 : CMD_PAYLOAD_NAME : : ParseJsonField : RESP : payload.name
-    60 : CMD_PAYLOAD_PARENT : : ParseJsonField : RESP : payload.parent
-
-    ; If action == create_ledger then build XML and import
-    100 : If : $$IsEqual:CMD_ACTION:"create_ledger" : Goto : CREATE_LEDGER
-
-    Goto : END
-
-    :CREATE_LEDGER
-    ; Build Tally XML for Ledger creation (ENVELOPE + TALLYMESSAGE)
-    200 : XML_IMPORT : String : "<ENVELOPE><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>All Masters</REPORTNAME></REQUESTDESC><REQUESTDATA><TALLYMESSAGE xmlns:UDF=\"TallyUDF\"><LEDGER NAME=\"":CMD_PAYLOAD_NAME:"\" ACTION=\"Create\"><PARENT>":CMD_PAYLOAD_PARENT:"</PARENT></LEDGER></TALLYMESSAGE></REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>"
-
-    ; Import XML into Tally - replace with the correct TDL XML import action
-    300 : : XMLImport : XML_IMPORT : OnSuccess: ReportSuccess : OnError: ReportError
-
-    ; After creating ledger, POST ack back to middleware
-    400 : : HTTP : POST : "http://localhost:3000/tally/ack" : Header: Content-Type=application/json : Body: {"commandId":"":CMD_ID:"","status":"success","resultPayload":{"createdLedger":"":CMD_PAYLOAD_NAME:""}}
-
-    :ReportSuccess
-    500 : : MessageBox : "Ledger created: " : CMD_PAYLOAD_NAME
-
-    :ReportError
-    600 : : MessageBox : "Failed to create ledger: " : CMD_PAYLOAD_NAME
-
-    :END
-
-;; End of TDL sample module.
+;; End of import-safe module.
