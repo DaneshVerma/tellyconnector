@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tally Middleware POC</title>
+    <style>
+      body{font-family: Arial, sans-serif;max-width:900px;margin:20px}
+      button{padding:10px 16px}
+      pre{background:#f6f8fa;padding:10px;border:1px solid #ddd}
+    </style>
+  </head>
+  <body>
+    <h1>Tally Middleware POC</h1>
+    <p>
+      This page lets you queue a sample Create Ledger command and watch vouchers pushed from Tally.
+    </p>
+
+    <button id="queueBtn">Queue: Create Test Ledger</button>
+    <div id="queueResult"></div>
+
+    <h2>Received Vouchers (from Tally)</h2>
+    <div id="vouchers">
+      <em>Loading...</em>
+    </div>
+
+    <h2>Command Queue (pending)</h2>
+    <div id="queueList"><em>Loading...</em></div>
+
+    <script>
+      const pollVouchers = async () => {
+        try {
+          const r = await fetch('/tally/received');
+          const items = await r.json();
+          const el = document.getElementById('vouchers');
+          if (!items || items.length === 0) { el.innerHTML = '<em>No vouchers received yet.</em>'; return; }
+          el.innerHTML = items.map(i => `<pre>${JSON.stringify(i,null,2)}</pre>`).join('\n');
+        } catch (e) { console.error(e); }
+      };
+
+      const pollQueue = async () => {
+        try {
+          const r = await fetch('/tally/queue');
+          const items = await r.json();
+          const el = document.getElementById('queueList');
+          if (!items || items.length === 0) { el.innerHTML = '<em>No queued commands.</em>'; return; }
+          el.innerHTML = items.map(i=>`<pre>${JSON.stringify(i,null,2)}</pre>`).join('\n');
+        } catch(e){console.error(e)}
+      };
+
+      document.getElementById('queueBtn').addEventListener('click', async () => {
+        const payload = { name: 'Test Ledger', parent: 'Sundry Debtors' };
+        const body = { action: 'create_ledger', payload };
+        const r = await fetch('/tally/queue-command', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        const j = await r.json();
+        document.getElementById('queueResult').innerText = JSON.stringify(j);
+        await pollQueue();
+      });
+
+      // Poll every 3s for updates
+      pollVouchers(); pollQueue();
+      setInterval(pollVouchers, 3000);
+      setInterval(pollQueue, 3000);
+    </script>
+  </body>
+</html>
