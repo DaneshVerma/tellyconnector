@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tally Middleware POC</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      #status { padding: 8px; display:inline-block; border-radius:4px }
+      #log { border:1px solid #ccc; height:300px; overflow:auto; padding:8px; white-space:pre-wrap }
+      button { margin:8px 0 }
+    </style>
+  </head>
+  <body>
+    <h2>Tally Middleware POC</h2>
+    <div>Agent status: <span id="status">unknown</span></div>
+    <button id="sendBtn">Send: Create Test Ledger</button>
+    <div id="log"></div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const logEl = document.getElementById('log');
+      const sendBtn = document.getElementById('sendBtn');
+
+      function log(msg) {
+        const time = new Date().toISOString();
+        logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+      }
+
+      // SSE for status and results
+      const es = new EventSource('/events');
+      es.addEventListener('status', (e) => {
+        const data = JSON.parse(e.data);
+        statusEl.textContent = data.agentConnected ? 'connected' : 'offline';
+        statusEl.style.background = data.agentConnected ? '#c8ffc8' : '#ffc8c8';
+        log('STATUS: ' + JSON.stringify(data));
+      });
+      es.addEventListener('result', (e) => {
+        const data = JSON.parse(e.data);
+        log('RESULT: ' + JSON.stringify(data));
+      });
+
+      sendBtn.onclick = async () => {
+        const payload = { action: 'create_ledger', payload: { name: 'Test Ledger', parent: 'Sundry Debtors' } };
+        const res = await fetch('/command', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          const body = await res.json().catch(()=>({}));
+          log('Failed to send command: ' + (body.error||res.status));
+          return;
+        }
+        log('Command sent: ' + JSON.stringify(payload));
+      };
+    </script>
+  </body>
+</html>
