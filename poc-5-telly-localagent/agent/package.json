@@ -4,10 +4,13 @@
   "description": "Local agent for Tally POC",
   "main": "agent.js",
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "install-service": "node install-service.js",
+    "uninstall-service": "node uninstall-service.js"
   },
   "dependencies": {
     "node-fetch": "^2.6.7",
+    "node-windows": "1.0.0-beta.8",
     "ws": "^8.13.0",
     "xml2js": "^0.4.23"
   }
