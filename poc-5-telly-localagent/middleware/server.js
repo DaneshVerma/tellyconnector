@@ -144,7 +144,9 @@ app.post('/agent/result', (req, res) => {
     }
 
     if (payload.kind === 'groups' && Array.isArray(payload.data)) {
-        state.groups = payload.data.length ? payload.data : [...defaultGroups];
+        state.groups = payload.data.length
+            ? payload.data.map((group) => typeof group === 'string' ? group : (group && group.name) || 'Unknown').filter(Boolean)
+            : [...defaultGroups];
     }
 
     if (payload.kind === 'vouchers' && Array.isArray(payload.data)) {
@@ -221,7 +223,9 @@ wss.on('connection', (ws) => {
 
             if (parsed.type === 'data') {
                 if (parsed.kind === 'ledgers') state.ledgers = parsed.data && parsed.data.length ? parsed.data : [...defaultLedgers];
-                if (parsed.kind === 'groups') state.groups = parsed.data && parsed.data.length ? parsed.data : [...defaultGroups];
+                if (parsed.kind === 'groups') state.groups = parsed.data && parsed.data.length
+                    ? parsed.data.map((group) => typeof group === 'string' ? group : (group && group.name) || 'Unknown').filter(Boolean)
+                    : [...defaultGroups];
                 if (parsed.kind === 'vouchers') state.vouchers = parsed.data || [];
                 pushLog(`Live ${parsed.kind || 'data'} update received from agent`);
             }

@@ -18,6 +18,17 @@ const demoLedgers = [
   { name: "Sales Revenue", group: "Sales Accounts", openingBalance: 0 },
 ];
 
+function normalizeGroupNames(input, fallback = demoGroups) {
+  if (!Array.isArray(input) || !input.length) return fallback;
+  return input
+    .map((group) => {
+      if (typeof group === "string") return group;
+      if (group && typeof group.name === "string") return group.name;
+      return "";
+    })
+    .filter(Boolean);
+}
+
 function formatLabel(value) {
   if (!value) return "--";
   return new Date(value).toLocaleTimeString();
@@ -153,7 +164,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState("");
 
   const selectedGroupOptions = useMemo(
-    () => (groups.length ? groups : demoGroups),
+    () => normalizeGroupNames(groups, demoGroups),
     [groups],
   );
   const selectedLedgerOptions = useMemo(
@@ -212,10 +223,7 @@ export default function App() {
     try {
       const response = await fetch("/api/data");
       const data = await response.json();
-      const nextGroups =
-        Array.isArray(data.groups) && data.groups.length
-          ? data.groups
-          : demoGroups;
+      const nextGroups = normalizeGroupNames(data.groups, demoGroups);
       const nextLedgers =
         Array.isArray(data.ledgers) && data.ledgers.length
           ? data.ledgers
