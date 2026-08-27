@@ -45,10 +45,12 @@ async function checkTallyReachable() {
         const res = await fetch(TALLY_URL, { method: 'GET', timeout: 2000 });
         const ok = res && res.status < 500;
         updateStatus({ tallyReachable: ok });
+        sendMiddlewareStatus();
         log(ok ? 'Tally reachable on port 9000' : 'Tally not running or not reachable');
         return ok;
     } catch (e) {
         updateStatus({ tallyReachable: false });
+        sendMiddlewareStatus();
         log('Tally not running or not reachable');
         return false;
     }

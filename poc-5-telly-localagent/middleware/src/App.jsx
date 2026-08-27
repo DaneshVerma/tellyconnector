@@ -29,6 +29,24 @@ function normalizeGroupNames(input, fallback = demoGroups) {
     .filter(Boolean);
 }
 
+function normalizeStatusSnapshot(data = {}) {
+  return {
+    agentRunning: !!(
+      data.agentConnected ??
+      data.agentRunning ??
+      data.agent ??
+      false
+    ),
+    tallyReachable: !!(
+      data.tallyReachable ??
+      data.tallyConnected ??
+      data.tally ??
+      false
+    ),
+    lastActivity: data.lastActivity || null,
+  };
+}
+
 function formatLabel(value) {
   if (!value) return "--";
   return new Date(value).toLocaleTimeString();
@@ -205,11 +223,7 @@ export default function App() {
     try {
       const response = await fetch("/api/status");
       const data = await response.json();
-      setStatus({
-        agentRunning: !!data.agentRunning,
-        tallyReachable: !!data.tallyReachable,
-        lastActivity: data.lastActivity || null,
-      });
+      setStatus(normalizeStatusSnapshot(data));
     } catch (error) {
       setStatus({
         agentRunning: false,
@@ -264,11 +278,7 @@ export default function App() {
     const eventSource = new EventSource("/events");
     eventSource.addEventListener("status", (event) => {
       const data = JSON.parse(event.data);
-      setStatus({
-        agentRunning: !!data.agentConnected,
-        tallyReachable: !!data.tallyReachable,
-        lastActivity: data.lastActivity || null,
-      });
+      setStatus(normalizeStatusSnapshot(data));
     });
 
     eventSource.addEventListener("result", (event) => {
