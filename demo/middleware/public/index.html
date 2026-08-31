@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TallyConnect — Real-Time Sync Dashboard</title>
+  <meta name="description" content="Real-time bidirectional sync dashboard for TallyPrime">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-hover: #22262f;
+      --border: #2a2e3a;
+      --text: #e4e7ec;
+      --text-muted: #8b8fa3;
+      --accent: #6c5ce7;
+      --accent-glow: rgba(108, 92, 231, 0.25);
+      --green: #00b894;
+      --green-glow: rgba(0, 184, 148, 0.2);
+      --red: #e74c3c;
+      --red-glow: rgba(231, 76, 60, 0.2);
+      --orange: #f39c12;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ─── Header ─────────────────────────────────────── */
+    .header {
+      background: linear-gradient(135deg, #1a1d27 0%, #252836 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(10px);
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent) 0%, #a29bfe 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .status-badge.connected {
+      background: var(--green-glow);
+      border: 1px solid var(--green);
+      color: var(--green);
+    }
+
+    .status-badge.disconnected {
+      background: var(--red-glow);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .connected .status-dot { background: var(--green); }
+    .disconnected .status-dot { background: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── Container ──────────────────────────────────── */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px;
+      display: grid;
+      gap: 32px;
+    }
+
+    /* ─── Cards ──────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(108, 92, 231, 0.3);
+    }
+
+    .card-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-header h2 .icon {
+      font-size: 20px;
+    }
+
+    .card-body {
+      padding: 24px;
+    }
+
+    .badge {
+      background: var(--accent-glow);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(108, 92, 231, 0.3);
+    }
+
+    /* ─── Buttons ─────────────────────────────────────── */
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #5a4bd1 100%);
+      color: white;
+      box-shadow: 0 4px 15px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--accent-glow);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: var(--surface-hover);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    /* ─── Form ────────────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color 0.2s ease;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .form-group input::placeholder {
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+
+    /* ─── Table ───────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 12px 16px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(42, 46, 58, 0.5);
+      transition: background 0.15s ease;
+    }
+
+    tbody tr:hover td {
+      background: var(--surface-hover);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .empty-state .empty-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    /* ─── Toast ───────────────────────────────────────── */
+    .toast-container {
+      position: fixed;
+      top: 80px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      animation: slideIn 0.3s ease, fadeOut 0.3s ease 3.7s;
+      max-width: 400px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    }
+
+    .toast.success {
+      background: var(--green-glow);
+      border: 1px solid var(--green);
+      color: var(--green);
+    }
+
+    .toast.error {
+      background: var(--red-glow);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+
+    /* ─── Loading spinner ────────────────────────────── */
+    .loading {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--text-muted);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ─── Responsive ─────────────────────────────────── */
+    @media (max-width: 768px) {
+      .container { padding: 16px; }
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+      .header { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header / Status Bar -->
+  <header class="header">
+    <h1>⚡ TallyConnect</h1>
+    <div id="statusBadge" class="status-badge disconnected">
+      <span class="status-dot"></span>
+      <span id="statusText">Agent: Checking…</span>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <!-- ─── Create Ledger Card ──────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h2><span class="icon">📝</span> Create Ledger</h2>
+      </div>
+      <div class="card-body">
+        <form id="createLedgerForm" class="form-grid">
+          <div class="form-group">
+            <label for="ledgerName">Ledger Name</label>
+            <input type="text" id="ledgerName" placeholder="e.g. John Doe" required>
+          </div>
+          <div class="form-group">
+            <label for="ledgerParent">Parent Group</label>
+            <input type="text" id="ledgerParent" placeholder="e.g. Sundry Debtors" required>
+          </div>
+          <div class="form-group">
+            <label for="ledgerBalance">Opening Balance</label>
+            <input type="text" id="ledgerBalance" placeholder="0" value="0">
+          </div>
+          <button type="submit" class="btn btn-primary" id="createBtn">
+            Create
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ─── Ledgers Card ────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h2><span class="icon">📒</span> Ledgers <span class="badge" id="ledgerCount">0</span></h2>
+        <button class="btn btn-secondary" onclick="fetchLedgers()">↻ Refresh</button>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Parent Group</th>
+                <th>Opening Balance</th>
+              </tr>
+            </thead>
+            <tbody id="ledgerTableBody">
+              <tr><td colspan="3" class="empty-state"><div class="empty-icon">📭</div>Loading ledgers…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Vouchers Card ───────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h2><span class="icon">🧾</span> Vouchers (Day Book) <span class="badge" id="voucherCount">0</span></h2>
+        <button class="btn btn-secondary" onclick="fetchVouchers()">↻ Refresh</button>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Voucher No.</th>
+                <th>Party</th>
+              </tr>
+            </thead>
+            <tbody id="voucherTableBody">
+              <tr><td colspan="4" class="empty-state"><div class="empty-icon">📭</div>Loading vouchers…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // ─── Toast Notification ───────────────────────────
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }
+
+    // ─── Status Polling ───────────────────────────────
+    async function checkStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const badge = document.getElementById('statusBadge');
+        const text = document.getElementById('statusText');
+        if (data.agentConnected) {
+          badge.className = 'status-badge connected';
+          text.textContent = 'Agent: Connected';
+        } else {
+          badge.className = 'status-badge disconnected';
+          text.textContent = 'Agent: Disconnected';
+        }
+      } catch (e) {
+        const badge = document.getElementById('statusBadge');
+        const text = document.getElementById('statusText');
+        badge.className = 'status-badge disconnected';
+        text.textContent = 'Server: Unreachable';
+      }
+    }
+    setInterval(checkStatus, 3000);
+    checkStatus();
+
+    // ─── Ledgers ──────────────────────────────────────
+    async function fetchLedgers() {
+      const tbody = document.getElementById('ledgerTableBody');
+      try {
+        const res = await fetch('/api/ledgers');
+        const data = await res.json();
+        if (data.error) {
+          tbody.innerHTML = `<tr><td colspan="3" class="empty-state"><div class="empty-icon">⚠️</div>${escapeHtml(data.error)}</td></tr>`;
+          document.getElementById('ledgerCount').textContent = '!';
+          return;
+        }
+        const ledgers = data.ledgers || [];
+        document.getElementById('ledgerCount').textContent = ledgers.length;
+        if (ledgers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" class="empty-state"><div class="empty-icon">📭</div>No ledgers found</td></tr>';
+          return;
+        }
+        tbody.innerHTML = ledgers.map(l => `
+          <tr>
+            <td>${escapeHtml(l.name)}</td>
+            <td>${escapeHtml(l.parent)}</td>
+            <td>${escapeHtml(String(l.openingBalance))}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="3" class="empty-state"><div class="empty-icon">❌</div>${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    // ─── Vouchers ─────────────────────────────────────
+    async function fetchVouchers() {
+      const tbody = document.getElementById('voucherTableBody');
+      try {
+        const res = await fetch('/api/vouchers');
+        const data = await res.json();
+        if (data.error) {
+          tbody.innerHTML = `<tr><td colspan="4" class="empty-state"><div class="empty-icon">⚠️</div>${escapeHtml(data.error)}</td></tr>`;
+          document.getElementById('voucherCount').textContent = '!';
+          return;
+        }
+        const vouchers = data.vouchers || [];
+        document.getElementById('voucherCount').textContent = vouchers.length;
+        if (vouchers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="empty-state"><div class="empty-icon">📭</div>No vouchers found</td></tr>';
+          return;
+        }
+        tbody.innerHTML = vouchers.map(v => `
+          <tr>
+            <td>${escapeHtml(v.date)}</td>
+            <td>${escapeHtml(v.voucherType)}</td>
+            <td>${escapeHtml(v.voucherNumber)}</td>
+            <td>${escapeHtml(v.party || '—')}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty-state"><div class="empty-icon">❌</div>${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    // ─── Create Ledger Form ───────────────────────────
+    document.getElementById('createLedgerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('createBtn');
+      const origText = btn.innerHTML;
+      btn.innerHTML = '<span class="loading"></span> Creating…';
+      btn.disabled = true;
+
+      const name = document.getElementById('ledgerName').value.trim();
+      const parent = document.getElementById('ledgerParent').value.trim();
+      const openingBalance = document.getElementById('ledgerBalance').value.trim() || '0';
+
+      try {
+        const res = await fetch('/api/ledger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, parent, openingBalance }),
+        });
+        const data = await res.json();
+
+        if (res.ok && !data.error) {
+          showToast(`✅ Ledger "${name}" created successfully!`, 'success');
+          document.getElementById('ledgerName').value = '';
+          document.getElementById('ledgerParent').value = '';
+          document.getElementById('ledgerBalance').value = '0';
+          // Refresh ledger table
+          setTimeout(fetchLedgers, 1000);
+        } else {
+          showToast(`❌ Failed: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        showToast(`❌ Network error: ${e.message}`, 'error');
+      }
+
+      btn.innerHTML = origText;
+      btn.disabled = false;
+    });
+
+    // ─── Helpers ──────────────────────────────────────
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ─── Auto-refresh ─────────────────────────────────
+    fetchLedgers();
+    fetchVouchers();
+    setInterval(fetchLedgers, 5000);
+    setInterval(fetchVouchers, 5000);
+  </script>
+</body>
+</html>

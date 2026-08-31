@@ -1,0 +1,17 @@
+{
+  "name": "tally-agent",
+  "version": "1.0.0",
+  "description": "Local agent that bridges middleware to TallyPrime",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "build": "pkg agent.js --targets node18-win-x64 --output tally-agent.exe"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
