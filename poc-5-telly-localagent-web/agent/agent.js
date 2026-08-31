@@ -121,6 +121,7 @@ function isAllowedXmlCodePoint(codePoint) {
     );
 }
 
+
 function sanitizeTallyXML(rawXmlString) {
     if (rawXmlString === undefined || rawXmlString === null) return '';
 
