@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tallyconnect-middleware
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 18.x
+      - key: PORT
+        value: 3000
